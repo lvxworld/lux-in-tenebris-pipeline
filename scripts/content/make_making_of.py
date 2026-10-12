@@ -464,7 +464,7 @@ PAGE = """<!DOCTYPE html>
 
   <footer class="colophon">
     <p class="mark">Per aspera ad astra</p>
-    <p class="meta">Compiled by Hermes Agent · {DATE_ISO} · <a href="https://github.com/NTTLuke/luxintenebris-ai-news" target="_blank" rel="noopener">source</a></p>
+    <p class="meta">Compiled by Hermes Agent · {DATE_ISO} · <a href="https://github.com/lvxworld/luxintenebris-ai-news" target="_blank" rel="noopener">source</a></p>
   </footer>
 
 </div>

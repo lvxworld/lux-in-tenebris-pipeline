@@ -770,7 +770,7 @@ echo "  Wire:    ${WIRE_COUNT:-0} articles"
 echo "  Images:  $IMG_COUNT ($([ "$SKIP_IMAGES" = true ] && echo 'skipped - no xAI credits' || echo 'generated'))"
 echo "  Podcast: $([ "$SKIP_PODCAST" = true ] && echo 'skipped - no xAI credits' || echo 'attempted')"
 echo "  Deploy:  $DEPLOY_DIR"
-echo "  Pushed:  github.com/nttluke/luxintenebris-ai-news"
+echo "  Pushed:  github.com/lvxworld/luxintenebris-ai-news"
 echo "═══════════════════════════════════════════════"
 
 # Final milestone. Reports what degraded (images/podcast skipped on exhausted

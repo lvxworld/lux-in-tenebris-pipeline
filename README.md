@@ -95,5 +95,5 @@ lux-in-tenebris-pipeline/
 
 ## Related repos
 
-- **Deploy (output):** [NTTLuke/luxintenebris-ai-news](https://github.com/NTTLuke/luxintenebris-ai-news) — published HTML/images/podcasts/archive
-- **Pipeline (this):** [NTTLuke/lux-in-tenebris-pipeline](https://github.com/NTTLuke/lux-in-tenebris-pipeline) — code, skills, templates
+- **Deploy (output):** [lvxworld/luxintenebris-ai-news](https://github.com/lvxworld/luxintenebris-ai-news) — published HTML/images/podcasts/archive
+- **Pipeline (this):** [lvxworld/lux-in-tenebris-pipeline](https://github.com/lvxworld/lux-in-tenebris-pipeline) — code, skills, templates

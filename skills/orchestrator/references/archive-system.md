@@ -50,7 +50,7 @@ HOME_URL = "/"              # back link from archive listing
 
 Absolute root-relative paths, since the live site is served from the custom
 domain root (`luxintenebris.news`), not a GitHub Pages project subpath.
-Updated 2026-07-24 when the site moved off `nttluke.github.io/luxintenebris-ai-news/`
+Updated 2026-07-24 when the site moved off `luxintenebris.news/`
 onto the custom domain — see [docs/ARCHITETTURA.md](../../../docs/ARCHITETTURA.md#issue-numbering--archiving)
 for that migration. If the deploy target ever changes again, update both constants.
 
@@ -83,7 +83,7 @@ The "← Current Issue" link in the archive page uses `HOME_URL` (absolute) so i
 | Archive listing | `https://luxintenebris.news/archive/` | Generated static HTML |
 | Archived issue | `https://luxintenebris.news/archive/2026-07-02/` | Self-contained |
 
-The old `nttluke.github.io/luxintenebris-ai-news/` path 301-redirects to the
+The old `luxintenebris.news/` path 301-redirects to the
 custom domain — legacy links/bookmarks still work.
 
 ## Troubleshooting

@@ -23,7 +23,7 @@
 ### 1. Clone the pipeline repo
 
 ```bash
-git clone git@github.com:NTTLuke/lux-in-tenebris-pipeline.git
+git clone git@github.com:lvxworld/lux-in-tenebris-pipeline.git
 ```
 
 ### 2. Symlink to Hermes paths
