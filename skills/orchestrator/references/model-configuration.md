@@ -34,13 +34,13 @@ there is exactly one place to look and one place to change:
 
 | Step | Model | Provider | Where |
 |------|-------|----------|-------|
-| All 7 `run_scout()` calls (x, research, official, opensource, tools, funding, hardware) | `deepseek-v4-flash` | `$PIPELINE_PROVIDER` | inside the `run_scout()` helper, `run.sh` |
-| YouTube scout | `deepseek-v4-flash` | `$PIPELINE_PROVIDER` | `run.sh`, step 2 |
-| Italia scout | `deepseek-v4-flash` | `$PIPELINE_PROVIDER` | `run.sh`, step 2 |
-| Editor | `deepseek-v4-flash` | `$PIPELINE_PROVIDER` | `run.sh`, step 4 |
-| Image gen orchestrator | `deepseek-v4-flash` | `$PIPELINE_PROVIDER` | `run.sh`, step 5 (the `image_generate` tool call itself still goes to xAI regardless — see §3) |
-| Podcast pill dialogue | `deepseek-v4-flash` | `$PIPELINE_PROVIDER` | `run.sh`, step 7 (the actual TTS audio still goes to xAI — see §3) |
-| Wire articles | `deepseek-v4-flash` | `localAIServer` | `wire_articles.py` defaults (`MODEL`/`PROVIDER`, overridable via `--model`/`--provider`) |
+| All 7 `run_scout()` calls (x, research, official, opensource, tools, funding, hardware) | `$PIPELINE_MODEL` | `$PIPELINE_PROVIDER` | inside the `run_scout()` helper, `run.sh` |
+| YouTube scout | `$PIPELINE_MODEL` | `$PIPELINE_PROVIDER` | `run.sh`, step 2 |
+| Italia scout | `$PIPELINE_MODEL` | `$PIPELINE_PROVIDER` | `run.sh`, step 2 |
+| Editor | `$PIPELINE_MODEL` | `$PIPELINE_PROVIDER` | `run.sh`, step 4 |
+| Image gen orchestrator | `$PIPELINE_MODEL` | `$PIPELINE_PROVIDER` | `run.sh`, step 5 (the `image_generate` tool call itself still goes to xAI regardless — see §3) |
+| Podcast pill dialogue | `$PIPELINE_MODEL` | `$PIPELINE_PROVIDER` | `run.sh`, step 7 (the actual TTS audio still goes to xAI — see §3) |
+| Wire articles | `$PIPELINE_MODEL` | `localAIServer` | `wire_articles.py` defaults (`MODEL`/`PROVIDER`, overridable via `--model`/`--provider`) |
 
 **Do not swap the provider.** These are not pinned as incidental drift
 protection — the pipeline has to run on this specific self-hosted server,
