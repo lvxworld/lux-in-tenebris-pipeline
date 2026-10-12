@@ -426,7 +426,7 @@ PAGE = """<!DOCTYPE html>
       <span class="dot">◆</span>
       <span>{PUBLISHED} stories</span>
     </div>
-    <div class="devocracy-credit">Inference server generously provided by <a href="https://x.com/ivanfioravanti" target="_blank" rel="noopener">Devocracy</a> · powered by DwarfStar · DeepSeek V4 Flash 0731 (M3 Ultra)!</div>
+    <div class="devocracy-credit">Inference server generously provided by <a href="https://x.com/ivanfioravanti" target="_blank" rel="noopener">Devocracy</a> · lux (GLM-5.3 Flash EXL3)!</div>
     <hr class="rule-thin">
   </header>
 

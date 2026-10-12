@@ -10,7 +10,7 @@ Stage 1 (DETERMINISTIC, Python, no LLM):
                   → get transcripts via youtube-transcript-api
                   → save /tmp/v2/scouts/scout_youtube_raw.json
 
-Stage 2 (LLM, DeepSeek V4 Flash, dedicated model):
+Stage 2 (LLM, `$PIPELINE_MODEL`, dedicated model):
   scout-youtube skill → read raw JSON → extract newsworthy items
                          → write /tmp/v2/scouts/scout_youtube.json
 ```
