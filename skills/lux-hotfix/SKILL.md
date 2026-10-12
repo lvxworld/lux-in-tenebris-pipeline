@@ -51,5 +51,5 @@ For today's live site (already published): edit the two live HTML files in the d
 ## Pitfalls
 
 - `git add -A` in deploy dir picks up stray files → check diff before commit.
-- The live domain is `luxintenebris.news`; `nttluke.github.io/luxintenebris-ai-news`
+- The live domain is `luxintenebris.news`; `luxintenebris.news`
   returns 301. Always verify on the custom domain with `-L` or directly.
