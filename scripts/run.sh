@@ -63,24 +63,32 @@ TEMPLATE_DIR="$PIPELINE_ROOT/template"
 # ║ PIPELINE_PROVIDER — DO NOT CHANGE without the user explicitly          ║
 # ║ asking for it, in this exact conversation, for this exact reason.      ║
 # ║                                                                        ║
-# ║ This must always be "localAIServer" (the user's friend's dedicated     ║
-# ║ LiteLLM server), never "openrouter" or anything else — regardless of   ║
-# ║ what model/provider the *interactive* Hermes session reasoning about   ║
-# ║ this fix happens to be running on. The user uses openrouter for        ║
-# ║ their own chats; the pipeline's own steps must not follow that.        ║
+# ║ Default is "localAIServer" (the user's friend's dedicated LiteLLM       ║
+# ║ server). openrouter is a paid, metered service with a different cost    ║
+# ║ profile — never switch on your own initiative, regardless of what      ║
+# ║ model/provider the *interactive* Hermes session reasoning about this   ║
+# ║ fix happens to be running on.                                          ║
 # ║                                                                        ║
 # ║ Incident (2026-07-27/28): asked to raise the scout timeout, an         ║
 # ║ interactive session swapped every "--provider localAIServer" in this   ║
 # ║ file to "--provider openrouter" — unrequested, unnoticed until the     ║
-# ║ user asked why. openrouter is a paid, metered service, separate from   ║
-# ║ the friend's server, with a different cost profile.                   ║
+# ║ user asked why.                                                        ║
+# ║                                                                        ║
+# ║ ACTIVE OVERRIDE (2026-10-16): the user explicitly asked to run on      ║
+# ║ openrouter because the 'lux' alias / GLM-5.3-Flash-EXL3 backend on     ║
+# ║ localAIServer was returning HTTP 500 (Connection error) on every call, ║
+# ║ killing all 7 scouts + the editor. REVERT to                           ║
+# ║ PIPELINE_PROVIDER="localAIServer" / PIPELINE_MODEL="lux" once the      ║
+# ║ upstream is healthy again — unless the user says otherwise.            ║
 # ╚════════════════════════════════════════════════════════════════════════╝
-PIPELINE_PROVIDER="localAIServer"
+PIPELINE_PROVIDER="openrouter"
 
 # Model for every LLM step (scouts, editor, image-gen, podcast-pill, wire
 # articles) — was hardcoded separately in each of the 7 call sites below;
 # centralized here so it's a one-line change instead of a find-and-replace.
-PIPELINE_MODEL="lux"
+# openrouter equivalent of the local GLM-5.3-Flash-EXL3 (same family, so the
+# editorial voice stays put). Swap to deepseek/deepseek-v4.1-flash if wanted.
+PIPELINE_MODEL="z-ai/glm-5.3-flash"
 
 # ── Setup ────────────────────────────────────────────────────
 mkdir -p "$LOG_DIR" "$SCOUTS_DIR" "$IMAGES_DIR" "$OUTPUT_DIR"
@@ -167,6 +175,10 @@ else
     find "$IMAGES_DIR" -type f -delete 2>/dev/null || true
     [ -f "$V2_DIR/edition.json" ] && rm -f "$V2_DIR/edition.json"
 fi
+# podcast_meta.json is NOT per-run scratch: leaving yesterday's behind made a day
+# whose podcast step failed re-inject YESTERDAY's ogg + duration into today's page
+# (silent, no error anywhere — observed 2026-10-16). Delete it here, always.
+rm -f "$V2_DIR/podcast_meta.json"
 echo "  ✓ cleanup done"
 
 # ── Step 1: Metadata ────────────────────────────────────────
@@ -686,6 +698,19 @@ echo "$NEXT_ISSUE" > "$DEPLOY_DIR/.issue"
 
 # ── Step 10: Copy files ───────────────────────────────────────
 echo "[step 10] copying files..."
+# Credit coherence: the credit line is hardcoded as the ailab/Devocracy
+# attribution in template/newspaper.html + make_making_of.py. On a sanctioned
+# openrouter run the published page would credit Ivan's server for work it never
+# did (observed 2026-10-16 and 10-17..21). Rewrite it from the ACTIVE provider +
+# model right before the copy, so whichever backend ran is what the page says.
+SET_CREDIT="$SCRIPT_DIR/content/set_credit.py"
+if [ -f "$SET_CREDIT" ]; then
+    python3 "$SET_CREDIT" "$OUTPUT_DIR/index.html" "$PIPELINE_PROVIDER" "$PIPELINE_MODEL" 2>>"$LOGFILE" \
+        && echo "  ✓ credit line set ($PIPELINE_PROVIDER · $PIPELINE_MODEL)" \
+        || echo "  ⚠ credit line rewrite failed (non-fatal)"
+    [ -f "$OUTPUT_DIR/making-of.html" ] && python3 "$SET_CREDIT" "$OUTPUT_DIR/making-of.html" \
+        "$PIPELINE_PROVIDER" "$PIPELINE_MODEL" 2>>"$LOGFILE" || true
+fi
 cp "$OUTPUT_DIR/index.html" "$DEPLOY_DIR/index.html"
 # Guarded: step 8c is non-fatal, so this file may legitimately not exist.
 if [ -f "$OUTPUT_DIR/making-of.html" ]; then
@@ -696,7 +721,11 @@ cp -r "$OUTPUT_DIR/fonts"/* "$DEPLOY_DIR/fonts/" 2>/dev/null || true
 mkdir -p "$DEPLOY_DIR/images"
 cp "$IMAGES_DIR"/*.jpg "$IMAGES_DIR"/*.png "$DEPLOY_DIR/images/" 2>/dev/null || true
 mkdir -p "$DEPLOY_DIR/podcasts"
-cp /tmp/v2/podcasts/*.ogg "$DEPLOY_DIR/podcasts/" 2>/dev/null || true
+# .ogg AND .mp3: the TTS backend decides the container (xai emits .mp3, edge
+# emits .ogg) and the injector references whatever the meta file names. A glob
+# that only matched .ogg shipped a page pointing at an mp3 that was never copied
+# (404, observed 2026-10-22).
+cp /tmp/v2/podcasts/*.ogg /tmp/v2/podcasts/*.mp3 "$DEPLOY_DIR/podcasts/" 2>/dev/null || true
 echo "  ✓ files copied to deploy dir"
 if [ -f "$TEMPLATE_DIR/style.css" ]; then
     cp "$TEMPLATE_DIR/style.css" "$DEPLOY_DIR/style.css"
