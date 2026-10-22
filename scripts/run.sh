@@ -74,21 +74,24 @@ TEMPLATE_DIR="$PIPELINE_ROOT/template"
 # ║ file to "--provider openrouter" — unrequested, unnoticed until the     ║
 # ║ user asked why.                                                        ║
 # ║                                                                        ║
-# ║ ACTIVE OVERRIDE (2026-10-16): the user explicitly asked to run on      ║
-# ║ openrouter because the 'lux' alias / GLM-5.3-Flash-EXL3 backend on     ║
-# ║ localAIServer was returning HTTP 500 (Connection error) on every call, ║
-# ║ killing all 7 scouts + the editor. REVERT to                           ║
-# ║ PIPELINE_PROVIDER="localAIServer" / PIPELINE_MODEL="lux" once the      ║
-# ║ upstream is healthy again — unless the user says otherwise.            ║
+# ║ RESOLVED OVERRIDE (2026-10-16 → 2026-10-22): the user explicitly asked for   ║
+# ║ openrouter after the 'lux' alias / GLM-5.3-Flash-EXL3 upstream on           ║
+# ║ localAIServer returned HTTP 500 (Connection error) on every call, killing    ║
+# ║ all 7 scouts + the editor (issues #113–#118 shipped on openrouter,           ║
+# ║ PIPELINE_MODEL="z-ai/glm-5.3-flash"). Reverted here on 2026-10-22 after      ║
+# ║ probing `lux` + GLM-5.3-Flash-EXL3 directly: both answer 200 again.          ║
+# ║                                                                             ║
+# ║ If it 500s again: probe the exact ids (a 200 on /v1/models proves nothing    ║
+# ║ about the alias), and a swap needs BOTH lines — the local alias does not     ║
+# ║ exist on openrouter, so set PIPELINE_MODEL="z-ai/glm-5.3-flash" (same        ║
+# ║ family) or "deepseek/deepseek-v4.1-flash" alongside the provider change.     ║
 # ╚════════════════════════════════════════════════════════════════════════╝
-PIPELINE_PROVIDER="openrouter"
+PIPELINE_PROVIDER="localAIServer"
 
 # Model for every LLM step (scouts, editor, image-gen, podcast-pill, wire
 # articles) — was hardcoded separately in each of the 7 call sites below;
 # centralized here so it's a one-line change instead of a find-and-replace.
-# openrouter equivalent of the local GLM-5.3-Flash-EXL3 (same family, so the
-# editorial voice stays put). Swap to deepseek/deepseek-v4.1-flash if wanted.
-PIPELINE_MODEL="z-ai/glm-5.3-flash"
+PIPELINE_MODEL="lux"
 
 # ── Setup ────────────────────────────────────────────────────
 mkdir -p "$LOG_DIR" "$SCOUTS_DIR" "$IMAGES_DIR" "$OUTPUT_DIR"
