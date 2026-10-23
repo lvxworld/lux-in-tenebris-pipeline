@@ -169,6 +169,66 @@ echo "════════════════════════�
 echo "LUX IN TENEBRIS V2 — $(date '+%Y-%m-%d %H:%M:%S')"
 echo "═══════════════════════════════════════════════"
 
+# ── Provider pre-flight — Ivan's server when healthy, openrouter when not ────
+# User rule (2026-10-22): "se il server d'Ivan è giù usiamo temporary solution
+# con openrouter". This is the automatic version of the manual rescue that was
+# hand-run on 2026-10-16 (alias `lux` / GLM-5.3-Flash-EXL3 answered HTTP 500
+# Connection error on every call and all 9 scouts + the editor died).
+#
+# It probes the CONFIGURED model with a real chat completion — a 200 on
+# /v1/models proves nothing about the alias (it was listed while 500ing) — and
+# on failure swaps provider+model FOR THIS RUN ONLY, in memory. No file is
+# edited, so the next run tries Ivan's server again by itself: no restore step
+# to forget (leaving an openrouter swap in place overnight is a documented
+# incident). The swap also needs a model id: the local alias does not exist on
+# openrouter, so FALLBACK_MODEL is the same-family GLM-5.3-Flash.
+FALLBACK_PROVIDER="openrouter"
+FALLBACK_MODEL="z-ai/glm-5.3-flash"
+AILAB_BASE="https://ailab.devocracy.it/v1"
+OPENROUTER_BASE="https://openrouter.ai/api/v1"
+AILAB_KEY=$(python3 -c "import yaml;print(yaml.safe_load(open('$HOME/.hermes/profiles/$PROFILE/config.yaml'))['providers']['localAIServer']['api_key'])" 2>/dev/null || echo "")
+OPENROUTER_KEY=$(grep -m1 '^OPENROUTER_API_KEY=' "$TG_ENV" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "")
+
+# probe_model <base_url> <key> <model> — 0 only when the model really answers.
+# max_tokens=60: reasoning models burn a smaller budget on hidden reasoning and
+# return empty content, which would misread a healthy model as down.
+probe_model() {
+    local base="$1" key="$2" model="$3" attempt code
+    [ -n "$key" ] || return 1
+    for attempt in 1 2; do
+        code=$(curl -s -m 30 -o /tmp/v2/.probe.json -w '%{http_code}' \
+            "$base/chat/completions" \
+            -H "Authorization: Bearer $key" -H 'Content-Type: application/json' \
+            -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word OK\"}],\"max_tokens\":60}" \
+            2>/dev/null || echo "000")
+        if [ "$code" = "200" ] && grep -q '"content"' /tmp/v2/.probe.json 2>/dev/null; then
+            return 0
+        fi
+        [ "$attempt" = "1" ] && sleep 10
+    done
+    echo "    probe $model → HTTP $code $(head -c 120 /tmp/v2/.probe.json 2>/dev/null | tr -d '\n')"
+    return 1
+}
+
+if [ "$PIPELINE_PROVIDER" = "localAIServer" ]; then
+    echo "[pre-flight] probing $PIPELINE_MODEL on localAIServer..."
+    if probe_model "$AILAB_BASE" "$AILAB_KEY" "$PIPELINE_MODEL"; then
+        echo "  ✓ $PIPELINE_MODEL risponde — run su localAIServer"
+    else
+        echo "  ⚠ localAIServer/$PIPELINE_MODEL non risponde — temporary solution: openrouter"
+        if probe_model "$OPENROUTER_BASE" "$OPENROUTER_KEY" "$FALLBACK_MODEL"; then
+            PIPELINE_PROVIDER="$FALLBACK_PROVIDER"
+            PIPELINE_MODEL="$FALLBACK_MODEL"
+            echo "  → run di oggi su $PIPELINE_PROVIDER · $PIPELINE_MODEL (solo questa run)"
+            notify "⚠️ Lux — ailab non risponde. Run di oggi su openrouter ($FALLBACK_MODEL)."
+        else
+            echo "  ✗ né localAIServer né openrouter rispondono — abort prima di bruciare 9 scout"
+            notify "⛔ Lux — né ailab né openrouter rispondono: nessuna edizione oggi."
+            exit 3
+        fi
+    fi
+fi
+
 # ── Step 0: Cleanup ─────────────────────────────────────────
 echo "[step 0] cleanup..."
 if [ -f "$CLEANUP_SH" ]; then
@@ -275,6 +335,25 @@ run_scout() {
         count=$(python3 -c "import json; d=json.load(open('$outfile')); print(len(d) if isinstance(d, list) else len(d.get('editorial',[])))" 2>/dev/null || echo "0")
         echo "  ✓ scout $name done ($count items)"
     else
+        # Mid-run provider death: the pre-flight probe only covers the start of
+        # the run, and Ivan's box has been seen healthy and 500ing within the
+        # same hour (2026-10-22). If this scout died on a provider error, retry
+        # it ONCE on the fallback provider and keep that provider for the rest
+        # of the run (user rule: "se il server d'Ivan è giù usiamo temporary
+        # solution con openrouter"). SWAPPED guards against a retry loop.
+        if [ "$PIPELINE_PROVIDER" = "localAIServer" ] && [ "${SWAPPED:-0}" != "1" ] \
+           && last_attempt "$LOG_DIR/scout_${name}_${TODAY}.out" \
+              | grep -qE "500|InternalServerError|Connection error|temporarily unavailable"; then
+            if probe_model "$OPENROUTER_BASE" "$OPENROUTER_KEY" "$FALLBACK_MODEL"; then
+                PIPELINE_PROVIDER="$FALLBACK_PROVIDER"
+                PIPELINE_MODEL="$FALLBACK_MODEL"
+                SWAPPED=1
+                echo "  ⚠ scout $name è morto su ailab — temporary solution: openrouter, retry"
+                notify "⚠️ Lux — scout $name fallito su ailab. Passo a openrouter ($FALLBACK_MODEL) per il resto della run."
+                run_scout "$name" "$skill" "$toolsets" "$prompt"
+                return
+            fi
+        fi
         echo "  ✗ scout $name FAILED or TIMEOUT — writing empty fallback"
         echo "[]" > "$outfile"
     fi
@@ -475,16 +554,39 @@ echo "[step 4] editor..."
 # NEXT_ISSUE was already resolved in step 1b (reuse-if-same-day-rerun,
 # increment-and-archive-predecessor otherwise).
 
-log_attempt "$LOG_DIR/editor_${TODAY}.log" "editor (timeout ${EDITOR_TIMEOUT_SECS}s)"
-timeout "$EDITOR_TIMEOUT_SECS" "$HERMES_BIN" chat -q "You are the Editor for Lux in Tenebris. Load skill editor and follow it exactly.
+edition_valid() { [ -f "$V2_DIR/edition.json" ] && python3 -c "import json; json.load(open('$V2_DIR/edition.json'))" 2>/dev/null 2>&1; }
+
+EDITOR_PROMPT="You are the Editor for Lux in Tenebris. Load skill editor and follow it exactly.
 Today is $TODAY. Issue #$NEXT_ISSUE.
 Read all scout JSON files from $SCOUTS_DIR/scout_*.json and the metadata.
 For cross-day dedup, read $DEPLOY_DIR/headlines_history.json via read_file.
 If $V2_DIR/free_models.json exists, read it and pass its content through unchanged into the free_models key (see skill step 3b) — skip the key entirely if the file is missing.
 Assemble edition.json following the skill instructions.
-Write the result to $V2_DIR/edition.json using write_file. ENGLISH ONLY." \
-    --profile "$PROFILE" -s editor -t file -m "$PIPELINE_MODEL" --provider "$PIPELINE_PROVIDER" -Q --yolo \
-    >>"$LOG_DIR/editor_${TODAY}.log" 2>&1 && EDITOR_RC=0 || EDITOR_RC=$?
+Write the result to $V2_DIR/edition.json using write_file. ENGLISH ONLY."
+
+run_editor() {
+    log_attempt "$LOG_DIR/editor_${TODAY}.log" "editor (timeout ${EDITOR_TIMEOUT_SECS}s, $PIPELINE_PROVIDER · $PIPELINE_MODEL)"
+    timeout "$EDITOR_TIMEOUT_SECS" "$HERMES_BIN" chat -q "$EDITOR_PROMPT" \
+        --profile "$PROFILE" -s editor -t file -m "$PIPELINE_MODEL" --provider "$PIPELINE_PROVIDER" -Q --yolo \
+        >>"$LOG_DIR/editor_${TODAY}.log" 2>&1 && EDITOR_RC=0 || EDITOR_RC=$?
+}
+
+run_editor
+
+# The editor is the FATAL step: a dead backend here costs the whole day. Retry
+# it ONCE on the fallback provider when it failed on a provider error (user
+# rule: "se il server d'Ivan è giù usiamo temporary solution con openrouter").
+if ! edition_valid && [ "$PIPELINE_PROVIDER" = "localAIServer" ] && [ "${SWAPPED:-0}" != "1" ] \
+   && last_attempt "$LOG_DIR/editor_${TODAY}.log" | grep -qE "500|InternalServerError|Connection error|temporarily unavailable"; then
+    if probe_model "$OPENROUTER_BASE" "$OPENROUTER_KEY" "$FALLBACK_MODEL"; then
+        PIPELINE_PROVIDER="$FALLBACK_PROVIDER"
+        PIPELINE_MODEL="$FALLBACK_MODEL"
+        SWAPPED=1
+        echo "  ⚠ editor morto su ailab — temporary solution: openrouter, retry"
+        notify "⚠️ Lux #$NEXT_ISSUE — editor fallito su ailab. Retry su openrouter ($FALLBACK_MODEL)."
+        run_editor
+    fi
+fi
 
 if [ -f "$V2_DIR/edition.json" ] && python3 -c "import json; json.load(open('$V2_DIR/edition.json'))" 2>/dev/null 2>&1; then
     echo "  ✓ edition.json written"
