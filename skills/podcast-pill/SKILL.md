@@ -129,7 +129,25 @@ stuck for longer than that with no progress in the log at all:
 - Kill the hanging `run.sh` process
 - Complete deploy manually — see `references/podcast-pill-production-fixes.md`
 
-### 3. Issue counter from edition.json, not assumption
+### 3. `text_to_speech` is often NOT callable from the pipeline session — use the ElevenLabs API directly
+
+**Observed 2026-10-23 and 2026-10-28:** the pipeline's podcast agent spends its whole turn arguing with itself about whether the tool exists (the log ends with *"The `text_to_speech` tool is a direct tool in this session's toolset — invoking it now for line 1 (Castor)…"*) and exits having produced **zero clips**. `run.sh` then logs `- podcast meta not found, skipping` and the edition ships with no pill at all — silently, because nothing errors. On 10-23 the xAI path also returned `403 Team is not authorized` on `api.x.ai/v1/audio/speech`.
+
+**Working recipe (proven both days, ~4 s for all six clips) — call the ElevenLabs HTTP API directly:**
+```
+POST https://api.elevenlabs.io/v1/text-to-speech/<voice_id>
+  headers: {"xi-api-key": <ELEVENLABS_API_KEY from ~/.hermes/.env>, "Content-Type": "application/json", "Accept": "audio/mpeg"}
+  body:    {"text": <line>, "model_id": "eleven_turbo_v2_5",
+            "voice_settings": {"stability": 0.3, "similarity_boost": 0.75}}
+
+  Roger   = CwhRBWXzGAHq8TQ4Fs17  -> Castor (realist)
+  Jessica = cgSgspJ2msm6clMCkdW9  -> Luna   (contrarian)
+```
+Six alternating lines (~2 sentences each) land at 55-70 s. Then: `ffmpeg -i line.mp3 -acodec pcm_s16le -ar 44100 -ac 1 line.wav` → concat demuxer → `-acodec libvorbis -aq 4 lead_<date>.ogg` → `ffprobe` duration → write `/tmp/v2/podcast_meta.json` (`ogg_rel_path`, `duration_sec`, `date_iso`, `issue_no` from edition.json) → `inject_podcast_pill.py` on `/tmp/v2/output/index.html` → copy the ogg **and** index.html into the deploy dir, commit, push.
+
+**A missing pill is silent:** verify with `grep -c podcast-pill index.html` on the rendered page (0 = no player) plus a live `curl` on the ogg URL.
+
+### 4. Issue counter from edition.json, not assumption
 The metadata `issue_no` MUST come from `data["issue_no"]` in the current
 `/tmp/v2/edition.json`. On 2026-07-08 the agent wrote `issue_no: 11` instead of
 12 because it was hardcoded in the script, not read from the file.
