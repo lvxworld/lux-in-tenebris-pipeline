@@ -895,6 +895,21 @@ mkdir -p "$DEPLOY_DIR/podcasts"
 # (404, observed 2026-10-22).
 cp /tmp/v2/podcasts/*.ogg /tmp/v2/podcasts/*.mp3 "$DEPLOY_DIR/podcasts/" 2>/dev/null || true
 echo "  ✓ files copied to deploy dir"
+
+# ── Step 10a: asset validation (non-fatal, but LOUD) ───────────
+# A wrong asset path 404s silently: the page ships and the reader sees an empty box.
+# Bare filenames (no `images/` prefix) and hyphen/underscore slug mismatches are the
+# two ways this has happened in production (2026-10-29: three section heroes broken).
+# The check reports missing assets, auto-heals separator mismatches, and never blocks
+# the edition.
+CHECK_ASSETS="$SCRIPT_DIR/core/check_images.py"
+if [ -f "$CHECK_ASSETS" ]; then
+    python3 "$CHECK_ASSETS" "$DEPLOY_DIR/index.html" "$DEPLOY_DIR" 2>&1 \
+        | while IFS= read -r line; do echo "  $line"; done
+    echo "  ✓ asset check done"
+else
+    echo "  - check_images.py not found, skipping asset check"
+fi
 if [ -f "$TEMPLATE_DIR/style.css" ]; then
     cp "$TEMPLATE_DIR/style.css" "$DEPLOY_DIR/style.css"
     echo "  ✓ style.css copied from template"
