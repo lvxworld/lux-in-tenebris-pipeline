@@ -15,6 +15,15 @@ file otherwise).
 ## Method
 web_fetch each URL from that list. Scan for posts dated within [yesterday, today].
 
+**🔴 Report the article's OWN publish date, never today's date.** Read the date off the
+page itself — the eyebrow line, the byline, or the `<time datetime="…">` element. If the
+page shows no date, or shows a date **older than the window**, **DROP the item** — do not
+stamp it with yesterday/today to make it fit. Lab newsrooms and RSS feeds re-surface old
+posts, and a stale item dated as fresh will be believed: on 2026-10-28 an Anthropic Opus 5.5
+post from **Sep 22** was reported as `2026-10-27`, passed the editor's 7-day dedup, and
+became the front-page lead of a paper that had already covered that launch in issues #90
+and #94.
+
 ## Output contract
 Return ONLY a JSON array (no prose, no fences). Each element:
 ```json

@@ -125,7 +125,23 @@ A scene set in a vast desert landscape where the AI concept is rendered as a mon
       Repeat for sections: `section_<slug>_<date_iso>.jpg`.
       **CRITICAL: never skip this download/copy step.** The image exists only in the cloud
       or cache until you save it to `/tmp/v2/images/`.
-   h. Update edition.json — add `"image": "images/<filename>"` to lead or to first item in each section.
+   h. Update edition.json. **The `image` value MUST start with `images/` and the slug MUST
+      use hyphens:**
+      - lead → `e["lead"]["image"] = "images/lead_<date_iso>.jpg"`
+      - section → `sec["image"] = "images/section_<slug>_<date_iso>.jpg"`, set on the
+        **section dict**, NOT on the first item. `render.py` prefers `sec["image"]`; the
+        item-level field is a legacy fallback that wraps the hero in a link plus a title
+        overlay, so putting it on an item silently changes the layout you get.
+      - `<slug>` = section title, lowercased, non-alphanumerics → `-`:
+        `"Research & Papers"` → `research-papers`, `"Open Source & Models"` →
+        `open-source-models`, `"Tools & Startups"` → `tools-startups`.
+        **Hyphens, never underscores.**
+      - **Verify before you finish:** every path you wrote must (a) start with `images/`
+        and (b) exist on disk — `ls /tmp/v2/images/`. A bare filename with no directory
+        resolves to `/<file>` on the live site → 404 → the hero renders as an empty box.
+        This shipped on 2026-10-29: three sections went live with broken heroes because the
+        paths were written bare and underscored (`section_research_papers_2026-10-29.jpg`).
+        Do not trust a summary that says "wired into edition.json" — check the file.
 
 ## Anti-patterns (NEVER do these)
 
