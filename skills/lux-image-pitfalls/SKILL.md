@@ -42,3 +42,19 @@ Same as P3 — re-inject the podcast pill after re-render if applicable.
 
 ## 🔴 P5: Lead image filename must match edition.json
 The lead image filename must be `lead_<date_iso>.jpg` (not `.png`). The `image` field in edition.json references `images/lead_<date_iso>.jpg`. If the xAI CDN returns a `.png`, convert or rename to `.jpg` when saving.
+
+## 🔴 P6: Grok returns 403 spending-limit → use the nano-banana fallback, never touch config
+When `image_generate` returns `403 personal-team-blocked:spending-limit`, xAI Grok Imagine is out of
+account credits/subscription — that is NOT an auth failure. `hermes --profile luke auth refresh xai-oauth`
+succeeds and changes nothing; do not waste a step on it and do not touch `image_gen.provider` in
+config.yaml (Luke's rule; and the config must stay on Grok so it resumes automatically once credits return).
+
+**Correct action — runtime fallback to OpenRouter nano-banana:**
+
+```bash
+python3 /home/nttluke/lux-in-tenebris-pipeline/scripts/core/lux_image_fallback.py \
+    /tmp/v2/images/lead_<date_iso>.jpg google/gemini-3-pro-image /tmp/v2/prompt_lead.txt
+```
+
+Same prompt (style base + Dune block + approach A-G), 16:9 2K, ~$0.14/image. Report the backend and the
+total cost in your final summary. Full details live in the `image-gen` skill.

@@ -59,6 +59,22 @@ After all 9 scouts have persisted their JSON to `/tmp/v2/scouts/`. The orchestra
      items from different scouts cover the same underlying event. Or use your own
      judgment on topic similarity.
    - **If `headlines_history.json` does not exist yet** (first run), skip this step.
+   - **🔴 Two hard rules the 7-day sweep does NOT cover — apply them before assigning any tier:**
+     1. **Lead and top stories get an ALL-TIME dedup, not a 7-day one.** A model
+        launch, an IPO filing, a funding round or an acquisition is news **once**.
+        For every candidate you are considering for `lead` or `top_stories`, sweep the
+        **entire** `headlines_history.json` (all issues, no date filter) for the same
+        **event** — not the same wording. *"Anthropic launches Claude Opus 5.5 at 40%
+        lower cost"* (#90) and *"Anthropic launches Claude Opus 5.5, its new frontier
+        flagship"* are the same launch 35 days apart: the second one is stale, and the
+        7-day window will never catch it. Match on the **subject + verb** (who did what),
+        ignoring adjectives, cost claims and the source outlet.
+     2. **Verify the item's own publish date — never trust the scout's `date` field for
+        lab blogs.** Vendor newsrooms (Anthropic, OpenAI, Google) and RSS feeds re-surface
+        old posts. If you are promoting an official-lab item to lead or top story, open
+        the URL and read the page's **own** date (the eyebrow line or `<time>` element).
+        If that date is older than the window, **DISCARD the item** — do not re-date it,
+        do not demote it. A Sep 22 announcement must never lead the Oct 28 edition.
 5. **Judge importance** and assign tiers:
    - **Before rating, use scout_source tags from step 4 to determine eligibility.**
    - `lead` (exactly 1): most consequential **mainstream** story.

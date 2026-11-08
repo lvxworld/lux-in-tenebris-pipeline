@@ -125,7 +125,23 @@ A scene set in a vast desert landscape where the AI concept is rendered as a mon
       Repeat for sections: `section_<slug>_<date_iso>.jpg`.
       **CRITICAL: never skip this download/copy step.** The image exists only in the cloud
       or cache until you save it to `/tmp/v2/images/`.
-   h. Update edition.json — add `"image": "images/<filename>"` to lead or to first item in each section.
+   h. Update edition.json. **The `image` value MUST start with `images/` and the slug MUST
+      use hyphens:**
+      - lead → `e["lead"]["image"] = "images/lead_<date_iso>.jpg"`
+      - section → `sec["image"] = "images/section_<slug>_<date_iso>.jpg"`, set on the
+        **section dict**, NOT on the first item. `render.py` prefers `sec["image"]`; the
+        item-level field is a legacy fallback that wraps the hero in a link plus a title
+        overlay, so putting it on an item silently changes the layout you get.
+      - `<slug>` = section title, lowercased, non-alphanumerics → `-`:
+        `"Research & Papers"` → `research-papers`, `"Open Source & Models"` →
+        `open-source-models`, `"Tools & Startups"` → `tools-startups`.
+        **Hyphens, never underscores.**
+      - **Verify before you finish:** every path you wrote must (a) start with `images/`
+        and (b) exist on disk — `ls /tmp/v2/images/`. A bare filename with no directory
+        resolves to `/<file>` on the live site → 404 → the hero renders as an empty box.
+        This shipped on 2026-10-29: three sections went live with broken heroes because the
+        paths were written bare and underscored (`section_research_papers_2026-10-29.jpg`).
+        Do not trust a summary that says "wired into edition.json" — check the file.
 
 ## Anti-patterns (NEVER do these)
 
@@ -144,8 +160,42 @@ A scene set in a vast desert landscape where the AI concept is rendered as a mon
 - NO aggressive street art (heavy spray paint, graffiti tags, chaotic splatter) — keep it refined and gallery-ready
 - NO complex scenes, busy textures, or patterns
 
-## Fallback on failure
-If `image_generate` errors for any item, OMIT the `image` field and continue. The newspaper never fails for a missing illustration.
+## Backend: Grok primary, nano-banana fallback
+
+The primary backend is the `image_generate` tool → **xAI Grok Imagine** (config `image_gen: model grok-imagine-image, provider: xai`).
+NEVER edit config.yaml to change the image backend — the fallback below is runtime-only, so Grok resumes
+automatically the moment xAI credits exist again.
+
+**Trigger for the fallback:** `image_generate` returns
+`403 personal-team-blocked:spending-limit` ("You have run out of credits or need a Grok subscription").
+This is an account-level xAI credit/subscription exhaustion, NOT an auth problem — refreshing the
+oauth token (`hermes --profile luke auth refresh xai-oauth`) does not fix it.
+
+**Fallback backend:** OpenRouter `google/gemini-3-pro-image` (nano-banana, ~$0.14/image at 2K 16:9).
+Key: `OPENROUTER_API_KEY` in `/home/nttluke/.hermes/profiles/luke/.env` (the script reads it itself).
+
+Durable script (git-tracked in the pipeline repo):
+
+```bash
+python3 /home/nttluke/lux-in-tenebris-pipeline/scripts/core/lux_image_fallback.py \
+    <out_path.jpg> google/gemini-3-pro-image <prompt_file>
+```
+
+- Write each prompt to its own file under `$TMPDIR` first, then call the script once per image.
+- It prints JSON: `{"path":..., "bytes":..., "cost":..., "usage":...}` — check `cost` and report the
+  total in the final summary.
+- It hardcodes `aspect_ratio: 16:9` and `resolution: 2K` for gemini/seedream models — matches lead and
+  section heroes, so the same prompt text works unchanged.
+- Use the SAME prompt (style base + Dune block + chosen approach) as you would for Grok. Only the
+  transport changes, not the art direction.
+- Output files are `1376×768`-class landscape with the aged-paper overlay; sanity-check brightness
+  means (~190-225 warm) to confirm the sepia overlay landed.
+- **State the backend in your final report** ("Grok Imagine" vs "OpenRouter gemini-3-pro-image, $X.XX")
+  so the operator always knows which engine drew today's issue.
+
+## Fallback on failure (total)
+If BOTH the primary tool and the OpenRouter fallback error for an item, OMIT the `image` field and
+continue. The newspaper never fails for a missing illustration.
 
 ## Lookbook (reference)
 See `references/metaphor-lookbook.md` for:

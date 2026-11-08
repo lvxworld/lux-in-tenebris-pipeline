@@ -146,7 +146,7 @@ def render_lead(tpl, lead):
     # Handle optional image for lead
     image_html = ""
     if lead.get("image"):
-        image_html = f'<img src="{esc_attr(lead["image"])}" alt="" class="lead-image">'
+        image_html = f'<img src="{esc_attr(norm_img_path(lead["image"]))}" alt="" class="lead-image">'
     return fill(tpl, {
         "KICKER": esc(lead.get("kicker", "Top Story")) or "Top Story",
         "TITLE": esc(lead.get("title")),
@@ -175,6 +175,16 @@ def render_top(top_wrap, top_item_tpl, stories):
     return fill(top_wrap, {"ITEMS": items})
 
 
+def norm_img_path(p):
+    """Image srcs are relative to the page root, so they MUST be 'images/<file>'.
+    A bare filename (no directory part) resolves to /<file> on the live site and
+    404s silently — the section hero renders as a broken/empty box (2026-10-29)."""
+    p = (p or "").strip()
+    if not p or p.startswith(("http://", "https://", "/", "images/", "data:")):
+        return p
+    return "images/" + p
+
+
 def render_sections(section_tpl, item_tpl, sections):
     blocks = []
     for sec in sections or []:
@@ -190,7 +200,7 @@ def render_sections(section_tpl, item_tpl, sections):
             # Section-level image: full-width banner, no overlay title
             section_image_html = (
                 f'<div class="section-hero">'
-                f'<img src="{esc_attr(sec["image"])}" alt="" class="section-hero-img">'
+                f'<img src="{esc_attr(norm_img_path(sec["image"]))}" alt="" class="section-hero-img">'
                 f'</div>'
             )
         else:
@@ -200,7 +210,7 @@ def render_sections(section_tpl, item_tpl, sections):
                     img_tag = (
                         f'<a href="{esc_attr(it.get("url", "#")) or "#"}" '
                         f'target="_blank" rel="noopener" class="section-hero">'
-                        f'<img src="{esc_attr(it["image"])}" alt="" class="section-hero-img">'
+                        f'<img src="{esc_attr(norm_img_path(it["image"]))}" alt="" class="section-hero-img">'
                         f'<h4 class="hero-title">{esc(it.get("title",""))}</h4>'
                         f'</a>'
                     )
