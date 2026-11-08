@@ -160,8 +160,42 @@ A scene set in a vast desert landscape where the AI concept is rendered as a mon
 - NO aggressive street art (heavy spray paint, graffiti tags, chaotic splatter) — keep it refined and gallery-ready
 - NO complex scenes, busy textures, or patterns
 
-## Fallback on failure
-If `image_generate` errors for any item, OMIT the `image` field and continue. The newspaper never fails for a missing illustration.
+## Backend: Grok primary, nano-banana fallback
+
+The primary backend is the `image_generate` tool → **xAI Grok Imagine** (config `image_gen: model grok-imagine-image, provider: xai`).
+NEVER edit config.yaml to change the image backend — the fallback below is runtime-only, so Grok resumes
+automatically the moment xAI credits exist again.
+
+**Trigger for the fallback:** `image_generate` returns
+`403 personal-team-blocked:spending-limit` ("You have run out of credits or need a Grok subscription").
+This is an account-level xAI credit/subscription exhaustion, NOT an auth problem — refreshing the
+oauth token (`hermes --profile luke auth refresh xai-oauth`) does not fix it.
+
+**Fallback backend:** OpenRouter `google/gemini-3-pro-image` (nano-banana, ~$0.14/image at 2K 16:9).
+Key: `OPENROUTER_API_KEY` in `/home/nttluke/.hermes/profiles/luke/.env` (the script reads it itself).
+
+Durable script (git-tracked in the pipeline repo):
+
+```bash
+python3 /home/nttluke/lux-in-tenebris-pipeline/scripts/core/lux_image_fallback.py \
+    <out_path.jpg> google/gemini-3-pro-image <prompt_file>
+```
+
+- Write each prompt to its own file under `$TMPDIR` first, then call the script once per image.
+- It prints JSON: `{"path":..., "bytes":..., "cost":..., "usage":...}` — check `cost` and report the
+  total in the final summary.
+- It hardcodes `aspect_ratio: 16:9` and `resolution: 2K` for gemini/seedream models — matches lead and
+  section heroes, so the same prompt text works unchanged.
+- Use the SAME prompt (style base + Dune block + chosen approach) as you would for Grok. Only the
+  transport changes, not the art direction.
+- Output files are `1376×768`-class landscape with the aged-paper overlay; sanity-check brightness
+  means (~190-225 warm) to confirm the sepia overlay landed.
+- **State the backend in your final report** ("Grok Imagine" vs "OpenRouter gemini-3-pro-image, $X.XX")
+  so the operator always knows which engine drew today's issue.
+
+## Fallback on failure (total)
+If BOTH the primary tool and the OpenRouter fallback error for an item, OMIT the `image` field and
+continue. The newspaper never fails for a missing illustration.
 
 ## Lookbook (reference)
 See `references/metaphor-lookbook.md` for:
