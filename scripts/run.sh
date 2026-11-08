@@ -7,7 +7,7 @@
 #     single self-hosted box and can't take concurrent agent sessions
 #   - Every LLM call is wrapped in a timeout; nothing can hang forever
 #   - 4h master timeout for the whole pipeline
-#   - Auto-skip image gen when xAI credits exhausted
+#   - Image gen never skips: Grok Imagine primary, OpenRouter nano-banana fallback
 #   - Auto-skip podcast pill when xAI TTS unavailable (checked independently)
 #   - Falls back to partial deploy if any non-critical step fails
 #   - Single edition (the K3 second edition was removed 2026-07-28)
@@ -689,32 +689,39 @@ else
 fi
 check_timeout
 
-# ── Step 5: Image Gen (with pre-check for xAI credits) ──────
+# ── Step 5: Image Gen ────────────────────────────────────────
+# Grok Imagine (image_gen.provider=xai) is the primary backend and needs xAI
+# credits, but an exhausted xAI account is NO LONGER a reason to skip this step:
+# image_generate returns "403 personal-team-blocked:spending-limit" and the agent
+# falls back at runtime to OpenRouter (google/gemini-3-pro-image) through
+# $SCRIPT_DIR/core/lux_image_fallback.py — same prompts, ~$0.14/image. See the
+# image-gen skill. Until 2026-11-08 this block raised SKIP_IMAGES whenever the
+# previous attempt's log mentioned the spending limit, so a single exhausted day
+# silently disabled illustrations on every following run even though the
+# fallback existed. SKIP_IMAGES is now derived from what is actually on disk.
 echo "[step 5] image gen..."
 SKIP_IMAGES=false
+mkdir -p "$IMAGES_DIR"
 
-# Check if xAI credits are available before even launching the agent
-if last_attempt "$LOG_DIR/imagegen_${TODAY}.log" | grep -q "personal-team-blocked:spending-limit"; then
-    SKIP_IMAGES=true
-fi
-
-if [ "$SKIP_IMAGES" = false ]; then
-    log_attempt "$LOG_DIR/imagegen_${TODAY}.log" "image gen"
-    timeout "$MEDIA_TIMEOUT_SECS" "$HERMES_BIN" chat -q "You are the Image Generator for Lux in Tenebris. Load skill image-gen.
+log_attempt "$LOG_DIR/imagegen_${TODAY}.log" "image gen"
+timeout "$MEDIA_TIMEOUT_SECS" "$HERMES_BIN" chat -q "You are the Image Generator for Lux in Tenebris. Load skill image-gen.
 Today is $TODAY. Read $V2_DIR/edition.json.
 Generate images for lead + each non-empty section using image_generate tool.
+If image_generate returns 403 spending-limit (xAI out of credits), do NOT stop and do NOT skip an image: generate it through the OpenRouter fallback instead —
+python3 $SCRIPT_DIR/core/lux_image_fallback.py <out_path.jpg> google/gemini-3-pro-image <prompt_file>
+same prompt and same aspect ratio, then carry on normally.
 Save images to $V2_DIR/images/. Update edition.json. ENGLISH ONLY." \
-        --profile "$PROFILE" -s image-gen -t file,image_gen,terminal -m "$PIPELINE_MODEL" --provider "$PIPELINE_PROVIDER" -Q --yolo \
-        >>"$LOG_DIR/imagegen_${TODAY}.log" 2>&1 || true
-fi
+    --profile "$PROFILE" -s image-gen -t file,image_gen,terminal -m "$PIPELINE_MODEL" --provider "$PIPELINE_PROVIDER" -Q --yolo \
+    >>"$LOG_DIR/imagegen_${TODAY}.log" 2>&1 || true
 
-# Check if it failed due to credits
-if last_attempt "$LOG_DIR/imagegen_${TODAY}.log" | grep -q "spending-limit\|credits exhausted\|403"; then
-    echo "  ⚠ xAI credits exhausted — will skip images for next runs too"
+# Degraded means "no illustration landed", not "Grok wasn't the one who drew it".
+IMG_NOW=$(find "$IMAGES_DIR" \( -name '*.jpg' -o -name '*.png' \) 2>/dev/null | wc -l)
+if [ "$IMG_NOW" -eq 0 ]; then
     SKIP_IMAGES=true
+    echo "  ⚠ no image on disk after step 5 — see imagegen_${TODAY}.log"
 fi
 
-echo "  ✓ image gen complete ($([ "$SKIP_IMAGES" = true ] && echo 'skipped - no credits' || echo 'done'))"
+echo "  ✓ image gen complete ($([ "$SKIP_IMAGES" = true ] && echo 'failed - no images on disk' || echo "done, $IMG_NOW files"))"
 check_timeout
 
 # ── Step 6: Render HTML ─────────────────────────────────────
@@ -979,18 +986,18 @@ echo "  Date:    $TODAY"
 echo "  Scouts:  $SCOUT_COUNT/9"
 echo "  Edition: ✅ ($([ -f "$V2_DIR/edition.json" ] && echo 'generated' || echo 'failed'))"
 echo "  Wire:    ${WIRE_COUNT:-0} articles"
-echo "  Images:  $IMG_COUNT ($([ "$SKIP_IMAGES" = true ] && echo 'skipped - no xAI credits' || echo 'generated'))"
+echo "  Images:  $IMG_COUNT ($([ "$SKIP_IMAGES" = true ] && echo 'none generated' || echo 'generated'))"
 echo "  Podcast: $([ "$SKIP_PODCAST" = true ] && echo 'skipped - no xAI credits' || echo 'attempted')"
 echo "  Deploy:  $DEPLOY_DIR"
 echo "  Pushed:  github.com/lvxworld/luxintenebris-ai-news"
 echo "═══════════════════════════════════════════════"
 
-# Final milestone. Reports what degraded (images/podcast skipped on exhausted
-# xAI credits) rather than claiming a clean run, so the message is worth
-# trusting on the days it says everything worked.
+# Final milestone. Reports what degraded (no illustration at all / podcast
+# skipped on exhausted xAI credits) rather than claiming a clean run, so the
+# message is worth trusting on the days it says everything worked.
 RUN_MIN=$(( $(elapsed) / 60 ))
 EXTRAS=""
-[ "$SKIP_IMAGES" = true ]  && EXTRAS="$EXTRAS no images (xAI credits),"
+[ "$SKIP_IMAGES" = true ]  && EXTRAS="$EXTRAS no images,"
 [ "$SKIP_PODCAST" = true ] && EXTRAS="$EXTRAS no podcast (xAI credits),"
 [ "${WIRE_COUNT:-0}" -eq 0 ] && EXTRAS="$EXTRAS no wire ticker,"
 EXTRAS="${EXTRAS%,}"
