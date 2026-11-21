@@ -43,6 +43,24 @@ Same as P3 — re-inject the podcast pill after re-render if applicable.
 ## 🔴 P5: Lead image filename must match edition.json
 The lead image filename must be `lead_<date_iso>.jpg` (not `.png`). The `image` field in edition.json references `images/lead_<date_iso>.jpg`. If the xAI CDN returns a `.png`, convert or rename to `.jpg` when saving.
 
+## 🔴 P7: OpenRouter has a $1.00 balance floor for image models (402, not 403)
+Even when Grok returns 403 and the fallback key is valid, the fallback itself can be refused:
+OpenRouter returns `402 "This request requires at least $1.00 in balance for image or video output"`
+whenever the account balance is under **$1.00** — before generating anything. Text models keep working
+on the same key, so a text probe proves nothing about image capability. There are 0 free image models on
+OpenRouter, so there is no third transport to fall back to.
+
+**Rule:** before spending a run on image gen, check the real balance, not the key's weekly budget:
+
+```bash
+curl -s https://openrouter.ai/api/v1/credits -H "Authorization: Bearer $OPENROUTER_API_KEY"
+# balance = total_credits - total_usage   → must be > $1.00
+```
+
+`/api/v1/key` is misleading here: its `limit_remaining` is a *weekly key budget*, not the account balance
+(2026-11-21: `limit_remaining` read ~$47 while the real balance was $0.59 and every image call 402'd).
+When the balance is under the floor, that is an operator action — report it and stop, do not retry.
+
 ## 🔴 P6: Grok returns 403 spending-limit → use the nano-banana fallback, never touch config
 When `image_generate` returns `403 personal-team-blocked:spending-limit`, xAI Grok Imagine is out of
 account credits/subscription — that is NOT an auth failure. `hermes --profile luke auth refresh xai-oauth`
