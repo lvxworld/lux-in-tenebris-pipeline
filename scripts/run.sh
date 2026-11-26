@@ -976,6 +976,85 @@ fi
 git push origin main --quiet 2>/dev/null || echo "  ⚠ git push failed — will retry on next run"
 echo "  ✓ pushed to GitHub"
 
+# ── Step 11b: verify the GitHub Pages release actually landed ──
+# A push is not a release. On 2026-11-25 the push succeeded, the Pages workflow
+# failed ("No artifacts named github-pages were found for this workflow run")
+# and the site served the PREVIOUS day's issue for a whole day — the first
+# anyone knew of it was a human noticing by hand. Nothing in the pipeline
+# watched Actions, because `git push` returning 0 says nothing about whether
+# Pages deployed. This step closes that loop: it finds the run belonging to
+# THIS commit, waits for it, retries it once when it failed, and reports the
+# outcome in the milestone notification (and in the run log) either way.
+#
+# Auth: the ambient `gh` login is used first (NTTLuke has admin on the deploy
+# repo, which is what `gh run rerun` needs). GITHUB_TOKEN from the profile .env
+# is only exported when it actually validates — the one currently in there is
+# expired, and a bad GH_TOKEN would turn every check into a 401.
+# Everything here is best-effort: no gh, no login or an API outage leaves
+# RELEASE_STATUS=unverified and never fails the run. Worst case it adds
+# ~10 minutes of bounded polling after the push.
+DEPLOY_SLUG="lvxworld/luxintenebris-ai-news"
+RELEASE_STATUS="unverified"
+RELEASE_RUN=""
+DEPLOY_SHA="$(git -C "$DEPLOY_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+
+gh_ok() { command -v gh >/dev/null 2>&1 && gh api user --jq .login >/dev/null 2>&1; }
+
+if [ -z "${GH_TOKEN:-}" ] && ! gh_ok; then
+    TOK=$(grep -m1 '^GITHUB_TOKEN=' "$TG_ENV" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+    if [ -n "$TOK" ] && GH_TOKEN="$TOK" gh api user --jq .login >/dev/null 2>&1; then
+        export GH_TOKEN="$TOK"
+    fi
+fi
+
+release_conclusion() {   # $1 = run id → success|failure|running|"" 
+    gh run view "$1" --repo "$DEPLOY_SLUG" --json status,conclusion \
+        --jq 'if .status=="completed" then .conclusion else "running" end' 2>/dev/null || echo ""
+}
+
+echo "[step 11b] verifying the release..."
+if gh_ok && [ -n "$DEPLOY_SHA" ]; then
+    # The push-triggered run can take a few seconds to appear; the SHA filter
+    # keeps us from mistaking a previous run for this one.
+    for _ in $(seq 1 12); do
+        RELEASE_RUN=$(gh run list --repo "$DEPLOY_SLUG" --limit 15 \
+            --json databaseId,headSha \
+            --jq "[.[] | select(.headSha==\"$DEPLOY_SHA\")][0].databaseId" 2>/dev/null || echo "")
+        [ -n "$RELEASE_RUN" ] && [ "$RELEASE_RUN" != "null" ] && break
+        RELEASE_RUN=""
+        sleep 5
+    done
+fi
+
+if [ -n "$RELEASE_RUN" ]; then
+    for attempt in 1 2; do
+        CONC=""
+        for _ in $(seq 1 30); do          # up to ~5 min per attempt
+            CONC=$(release_conclusion "$RELEASE_RUN")
+            case "$CONC" in success|failure|cancelled|timed_out|skipped) break;; esac
+            sleep 10
+        done
+        RELEASE_STATUS="${CONC:-unverified}"
+        [ "$RELEASE_STATUS" = "failure" ] || break
+        if [ "$attempt" = 1 ]; then
+            echo "  ⚠ Pages deploy failed (run $RELEASE_RUN) — retrying once"
+            gh run rerun "$RELEASE_RUN" --repo "$DEPLOY_SLUG" --failed >/dev/null 2>&1 || true
+            sleep 15
+        fi
+    done
+    if [ "$RELEASE_STATUS" = "success" ]; then
+        echo "  ✓ release verified live (Pages run $RELEASE_RUN)"
+    else
+        echo "  ⛔ RELEASE NOT LIVE ($RELEASE_STATUS, run $RELEASE_RUN) — the site is still on the previous issue"
+    fi
+elif gh_ok; then
+    RELEASE_STATUS="no-run-found"
+    echo "  ⚠ no Pages run found for $DEPLOY_SHA"
+else
+    echo "  - release check skipped (gh not authenticated)"
+fi
+check_timeout
+
 # ── Report ──────────────────────────────────────────────────
 IMG_COUNT=$(find "$IMAGES_DIR" \( -name '*.jpg' -o -name '*.png' \) 2>/dev/null | wc -l)
 echo ""
@@ -990,16 +1069,36 @@ echo "  Images:  $IMG_COUNT ($([ "$SKIP_IMAGES" = true ] && echo 'none generated
 echo "  Podcast: $([ "$SKIP_PODCAST" = true ] && echo 'skipped - no xAI credits' || echo 'attempted')"
 echo "  Deploy:  $DEPLOY_DIR"
 echo "  Pushed:  github.com/lvxworld/luxintenebris-ai-news"
+case "$RELEASE_STATUS" in
+    success)          echo "  Release: ✅ live on GitHub Pages (run $RELEASE_RUN)";;
+    unverified)       echo "  Release: ⚠ not verified (check skipped)";;
+    no-run-found)     echo "  Release: ⚠ no Pages run found for $DEPLOY_SHA";;
+    *)                echo "  Release: ⛔ NOT LIVE ($RELEASE_STATUS, run $RELEASE_RUN)";;
+esac
 echo "═══════════════════════════════════════════════"
 
 # Final milestone. Reports what degraded (no illustration at all / podcast
 # skipped on exhausted xAI credits) rather than claiming a clean run, so the
 # message is worth trusting on the days it says everything worked.
+# The release line is the one that matters most: an issue that was written,
+# rendered and pushed but never deployed is not live, and the notification is
+# the only place that distinction becomes visible without reading logs.
 RUN_MIN=$(( $(elapsed) / 60 ))
 EXTRAS=""
 [ "$SKIP_IMAGES" = true ]  && EXTRAS="$EXTRAS no images,"
 [ "$SKIP_PODCAST" = true ] && EXTRAS="$EXTRAS no podcast (xAI credits),"
 [ "${WIRE_COUNT:-0}" -eq 0 ] && EXTRAS="$EXTRAS no wire ticker,"
+EXTRAS="$(echo "$EXTRAS" | tr -d '\n')"
 EXTRAS="${EXTRAS%,}"
-notify "✅ Lux #$NEXT_ISSUE is live — ${ED_KEPT:-?} stories, $IMG_COUNT illustrations, ${WIRE_COUNT:-0} wire, in ${RUN_MIN}m.${EXTRAS:+ Degraded:$EXTRAS.}
+case "$RELEASE_STATUS" in
+    success)      RELEASE_LINE="Release verificata live (Pages run $RELEASE_RUN)."
+                  HEADLINE="✅ Lux #$NEXT_ISSUE is live";;
+    unverified)   RELEASE_LINE="⚠ Release NON verificata (check saltato)."
+                  HEADLINE="⚠ Lux #$NEXT_ISSUE — pubblicata, release non confermata";;
+    no-run-found) RELEASE_LINE="⚠ Release non verificata: nessun run Pages trovato per questo commit."
+                  HEADLINE="⚠ Lux #$NEXT_ISSUE — pubblicata, release non confermata";;
+    *)            RELEASE_LINE="⛔ RELEASE FALLITA ($RELEASE_STATUS, run $RELEASE_RUN): il sito è ANCORA sull'edizione precedente."
+                  HEADLINE="⛔ Lux #$NEXT_ISSUE — NON live";;
+esac
+notify "$HEADLINE — ${ED_KEPT:-?} stories, $IMG_COUNT illustrations, ${WIRE_COUNT:-0} wire, in ${RUN_MIN}m.${EXTRAS:+ Degraded:$EXTRAS.} $RELEASE_LINE
 https://luxintenebris.news"

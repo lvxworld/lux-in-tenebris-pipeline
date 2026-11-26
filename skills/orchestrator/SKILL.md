@@ -31,7 +31,35 @@ Image-gen → Render → index.html
 Podcast Pill → Wire articles → ticker injection
   ↓
 Copy → headlines history → git add → commit → push
+  ↓
+Step 11b: wait for the Pages run of THIS commit → retry once on failure → report
 ```
+
+## Step 11b — the release check (added 2026-11-26)
+
+`git push` returning 0 is not a release. On 2026-11-25 the push succeeded while
+the Pages workflow failed (`No artifacts named "github-pages" were found for
+this workflow run`), so the site served the previous day's issue for a full day
+and nobody knew until a human spotted it. Nothing in the pipeline watched
+Actions, because nothing in it *could* — the push says nothing about the deploy.
+
+Step 11b closes that loop: it finds the Pages run whose `headSha` matches the
+commit just pushed, polls it (bounded, ~5 min), re-runs it once via
+`gh run rerun --failed` if it failed, and puts the outcome in the milestone
+notification:
+
+- `✅ Lux #N is live — … Release verificata live (Pages run <id>).`
+- `⚠ Lux #N — pubblicata, release non confermata` (check skipped / no run found)
+- `⛔ Lux #N — NON live … il sito è ANCORA sull'edizione precedente.`
+
+**Auth:** the ambient `gh` login is used (NTTLuke has admin on the deploy repo,
+which is what `rerun` needs). `GITHUB_TOKEN` from the profile `.env` is only
+exported after it validates — the one stored there is expired, and a bad
+`GH_TOKEN` would 401 every check.
+
+**Never make this step fatal:** no gh, no login, or an API outage must leave
+`RELEASE_STATUS=unverified` and let the run finish. A missed notification is
+recoverable; a killed pipeline is not.
 
 ## Why sequential scouts (changed 2026-07-28)
 
