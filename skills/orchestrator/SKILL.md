@@ -78,6 +78,13 @@ keeps showing whatever `<title>` was captured on an earlier day — the report
 The notification URL carries `?ed=$NEXT_ISSUE` to force a fresh preview, and
 because step 11b waits for the deploy first, the title it reads is today's.
 
+`template/newspaper.html` also carries explicit `og:*` / `twitter:*` tags
+(`og:title` = "… · {{DATE_HUMAN}} — No. {{ISSUE_NO}}", `og:image` = today's lead
+illustration, `<link rel="canonical">`). Before 2026-11-27 the page had only
+`<title>` and `meta description`, so every preview depended on a fallback. Note
+`og:url` deliberately stays the canonical bare URL while the *notification* link
+carries `?ed=` — preview caching keys on the linked URL, not on `og:url`.
+
 **Auth:** the ambient `gh` login is used (NTTLuke has admin on the deploy repo,
 which is what dispatching and re-running workflow runs needs). `GITHUB_TOKEN`
 from the profile `.env` is only exported after it validates — the one stored

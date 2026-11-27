@@ -5,7 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LVX IN TENEBRIS — AI dispatches · {{DATE_HUMAN}}</title>
   <meta name="description" content="A daily dark-broadsheet recap of the most disruptive AI news from the last 24 hours.">
+  <!-- Link previews (Telegram, X, Slack, iMessage).
+       Telegram caches previews per URL, so the daily notification links carry
+       ?ed=<issue>; these tags make the card explicit instead of relying on the
+       <title> fallback. og:image points at today's lead illustration, so a day
+       with no images simply yields a card with no picture. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="LVX IN TENEBRIS">
+  <meta property="og:title" content="LVX IN TENEBRIS — AI dispatches · {{DATE_HUMAN}} — No. {{ISSUE_NO}}">
+  <meta property="og:description" content="A daily dark-broadsheet recap of the most disruptive AI news from the last 24 hours — Issue No. {{ISSUE_NO}}, {{COUNT}} stories.">
+  <meta property="og:url" content="https://luxintenebris.news/">
+  <meta property="og:image" content="https://luxintenebris.news/images/lead_{{DATE_ISO}}.jpg">
+  <meta property="og:image:alt" content="Editorial ink-and-watercolor illustration for the {{DATE_HUMAN}} edition">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="LVX IN TENEBRIS — AI dispatches · {{DATE_HUMAN}} — No. {{ISSUE_NO}}">
+  <meta name="twitter:description" content="A daily dark-broadsheet recap of the most disruptive AI news from the last 24 hours — Issue No. {{ISSUE_NO}}, {{COUNT}} stories.">
+  <meta name="twitter:image" content="https://luxintenebris.news/images/lead_{{DATE_ISO}}.jpg">
   <link rel="alternate" type="application/rss+xml" title="Lux in Tenebris — AI dispatches" href="/rss.xml">
+  <link rel="canonical" href="https://luxintenebris.news/">
   <link rel="stylesheet" href="style.css">
   </head>
   <body>
