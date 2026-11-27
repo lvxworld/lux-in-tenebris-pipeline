@@ -87,8 +87,42 @@ carries `?ed=` — preview caching keys on the linked URL, not on `og:url`.
 
 **Auth:** the ambient `gh` login is used (NTTLuke has admin on the deploy repo,
 which is what dispatching and re-running workflow runs needs). `GITHUB_TOKEN`
-from the profile `.env` is only exported after it validates — the one stored
+from the profile `.env` is only exported when it validates — the one stored
 there is expired, and a bad `GH_TOKEN` would 401 every check.
+
+**The push is verified, not assumed.** `git push` exiting 0 is not proof that
+anything landed, and HEAD is a poor witness: if the push never happened, HEAD is
+still the commit that was already live, so matching it against Actions finds an
+OLDER run and reports a green release for a day that was never published. Step
+11b therefore refuses to check the release unless HEAD is on `origin/main`
+(`git branch -r --contains`), and it has explicit statuses for the two ways a
+publication can fail before Actions is even involved:
+
+- `push-blocked` → the secret guard refused the push (see below)
+- `push-failed`  → `git push` failed, or HEAD is not on `origin/main`
+
+Both report `⛔ Lux #N — NON pubblicata` and never claim the site is live.
+
+**The secret guard (step 11).** This repo is PUBLIC and the deploy step stages
+the whole worktree with `git add -A`, so a stray `.env`, a raw API log or an auth
+dump landing in `$DEPLOY_DIR` would be committed and published automatically.
+`scripts/core/secret_guard.py` scans the staged content before the commit:
+
+- **BLOCK** (unstage everything, no commit, no push) on credential-shaped
+  filenames (`.env*`, `auth.json`, `*.pem`, `*.key`, `*credential*`, `.netrc`,
+  `*cookie*`) and on high-confidence token shapes (OpenRouter, `sk-…`, xAI,
+  GitHub PAT, AWS, Google, Stripe, Slack, Telegram bot token, Discord webhook,
+  ElevenLabs, private-key blocks, JWTs) plus `secret_name = <value>` assignments
+  in files that are NOT news content.
+- **WARN only** for a token found inside news content (`index.html`, `editions/`,
+  `archive/`, `rss.xml`, markdown) — a real key quoted by an article must never
+  stop the day's release.
+
+Verified: 9/9 real profile secrets caught when planted in a file, 0 false
+positives across all 788 text files of both repos, and the full flow exercised
+end-to-end on a scratch repo with a stubbed `gh` (6/6 scenarios). GitHub-side
+secret scanning and push protection are enabled on both repos as the second net;
+`secret_scanning_validity_checks` stays off (needs GitHub Advanced Security).
 
 **Never make this step fatal:** no gh, no login, or an API outage must leave
 `RELEASE_STATUS=unverified` and let the run finish. A missed notification is

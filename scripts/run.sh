@@ -992,11 +992,41 @@ fi
 
 cd "$DEPLOY_DIR"
 git add -A
-if ! git diff --cached --quiet; then
-    git commit -m "Update AI news $TODAY" --quiet 2>/dev/null || true
+
+# ── Secret guard: never publish credentials ────────────────────
+# `git add -A` stages whatever landed in this worktree, so a stray .env, a raw
+# API log or an auth dump would be committed and pushed to a PUBLIC repo with
+# nobody noticing. secret_guard.py scans the staged content first (blocking on
+# credential-shaped filenames and high-confidence tokens outside news content;
+# a token inside the editorial itself is only reported, so a real key quoted by
+# an article can never stop the day's release). On a hit: unstage, do not
+# commit, do not push, and say so in the notification.
+GUARD_LINE=""
+PUSH_BLOCKED=false
+if [ -f "$SCRIPT_DIR/core/secret_guard.py" ]; then
+    GUARD_OUT=$(python3 "$SCRIPT_DIR/core/secret_guard.py" "$DEPLOY_DIR" 2>&1)
+    GUARD_RC=$?
+    if [ -n "$GUARD_OUT" ]; then
+        printf '%s\n' "$GUARD_OUT" | sed 's/^/  /' | tee -a "$LOGFILE"
+    fi
+    if [ "$GUARD_RC" -ne 0 ]; then
+        git reset --quiet 2>/dev/null || true
+        PUSH_BLOCKED=true
+        echo "  ⛔ credential-like content staged — commit and push aborted"
+    fi
+else
+    echo "  ⚠ secret_guard.py not found — pushing WITHOUT the credential guard"
 fi
-git push origin main --quiet 2>/dev/null || echo "  ⚠ git push failed — will retry on next run"
-echo "  ✓ pushed to GitHub"
+
+if [ "$PUSH_BLOCKED" = true ]; then
+    echo "  ⛔ push skipped: nothing published today, the site stays on the previous issue"
+else
+    if ! git diff --cached --quiet; then
+        git commit -m "Update AI news $TODAY" --quiet 2>/dev/null || true
+    fi
+    git push origin main --quiet 2>/dev/null || { echo "  ⚠ git push failed — will retry on next run"; PUSH_FAILED=true; }
+    [ "${PUSH_FAILED:-false}" = true ] || echo "  ✓ pushed to GitHub"
+fi
 
 # ── Step 11b: verify the GitHub Pages release actually landed ──
 # A push is not a release. On 2026-11-25 the push succeeded, the Pages workflow
@@ -1018,6 +1048,8 @@ echo "  ✓ pushed to GitHub"
 DEPLOY_SLUG="lvxworld/luxintenebris-ai-news"
 RELEASE_STATUS="unverified"
 RELEASE_RUN=""
+: "${PUSH_BLOCKED:=false}"
+: "${PUSH_FAILED:=false}"
 DEPLOY_SHA="$(git -C "$DEPLOY_DIR" rev-parse HEAD 2>/dev/null || echo '')"
 
 gh_ok() { command -v gh >/dev/null 2>&1 && gh api user --jq .login >/dev/null 2>&1; }
@@ -1035,7 +1067,22 @@ release_conclusion() {   # $1 = run id → success|failure|running|""
 }
 
 echo "[step 11b] verifying the release..."
-if gh_ok && [ -n "$DEPLOY_SHA" ]; then
+# A commit that was never published must never be reported as live. The secret
+# guard can refuse the push, and `git push` can fail on its own (auth, network):
+# in both cases HEAD is the commit that was ALREADY deployed before, so matching
+# it against Actions would find an older run and report a green release for a
+# day that was never published. Checking that HEAD is on origin/main is what
+# separates "this push landed" from "we are looking at yesterday's commit".
+if [ "$PUSH_BLOCKED" = true ]; then
+    RELEASE_STATUS="push-blocked"; RELEASE_BLOCKED=1
+    echo "  ⛔ push blocked by the secret guard — nothing to verify"
+elif [ "$PUSH_FAILED" = true ]; then
+    RELEASE_STATUS="push-failed"; RELEASE_BLOCKED=1
+    echo "  ⛔ git push failed — nothing to verify"
+elif [ -z "$DEPLOY_SHA" ] || ! git -C "$DEPLOY_DIR" branch -r --contains "$DEPLOY_SHA" 2>/dev/null | grep -q 'origin/main'; then
+    RELEASE_STATUS="push-failed"; RELEASE_BLOCKED=1
+    echo "  ⛔ HEAD is not on origin/main — the push did not land, nothing to verify"
+elif gh_ok; then
     # The push-triggered run can take a few seconds to appear; the SHA filter
     # keeps us from mistaking a previous run for this one.
     for _ in $(seq 1 12); do
@@ -1048,7 +1095,7 @@ if gh_ok && [ -n "$DEPLOY_SHA" ]; then
     done
 fi
 
-if [ -n "$RELEASE_RUN" ]; then
+if [ -z "${RELEASE_BLOCKED:-}" ] && [ -n "$RELEASE_RUN" ]; then
     for attempt in 1 2; do
         CONC=""
         for _ in $(seq 1 30); do          # up to ~5 min per attempt
@@ -1099,7 +1146,7 @@ if [ -n "$RELEASE_RUN" ]; then
     else
         echo "  ⛔ RELEASE NOT LIVE ($RELEASE_STATUS, run $RELEASE_RUN) — the site is still on the previous issue"
     fi
-elif gh_ok; then
+elif [ -z "${RELEASE_BLOCKED:-}" ] && gh_ok; then
     RELEASE_STATUS="no-run-found"
     echo "  ⚠ no Pages run found for $DEPLOY_SHA"
 else
@@ -1125,6 +1172,8 @@ case "$RELEASE_STATUS" in
     success)          echo "  Release: ✅ live on GitHub Pages (run $RELEASE_RUN)";;
     unverified)       echo "  Release: ⚠ not verified (check skipped)";;
     no-run-found)     echo "  Release: ⚠ no Pages run found for $DEPLOY_SHA";;
+    push-blocked)     echo "  Release: ⛔ NOT PUBLISHED — the secret guard blocked the push";;
+    push-failed)      echo "  Release: ⛔ NOT PUBLISHED — the push did not land";;
     *)                echo "  Release: ⛔ NOT LIVE ($RELEASE_STATUS, run $RELEASE_RUN)";;
 esac
 echo "═══════════════════════════════════════════════"
@@ -1154,8 +1203,12 @@ case "$RELEASE_STATUS" in
                   HEADLINE="⚠ Lux #$NEXT_ISSUE — pubblicata, release non confermata";;
     no-run-found) RELEASE_LINE="⚠ Release non verificata: nessun run Pages trovato per questo commit."
                   HEADLINE="⚠ Lux #$NEXT_ISSUE — pubblicata, release non confermata";;
+    push-blocked) RELEASE_LINE="⛔ PUSH BLOCCATO dal secret guard: niente è stato pubblicato, il sito resta sull'edizione precedente (dettagli nel run log)."
+                  HEADLINE="⛔ Lux #$NEXT_ISSUE — NON pubblicata (secret guard)";;
+    push-failed)  RELEASE_LINE="⛔ PUSH NON ATTERRATO: niente è stato pubblicato, il sito resta sull'edizione precedente."
+                  HEADLINE="⛔ Lux #$NEXT_ISSUE — NON pubblicata (push fallito)";;
     *)            RELEASE_LINE="⛔ RELEASE FALLITA ($RELEASE_STATUS, run $RELEASE_RUN): il sito è ANCORA sull'edizione precedente."
                   HEADLINE="⛔ Lux #$NEXT_ISSUE — NON live";;
 esac
-notify "$HEADLINE — ${ED_KEPT:-?} stories, $IMG_COUNT illustrations, ${WIRE_COUNT:-0} wire, in ${RUN_MIN}m.${EXTRAS:+ Degraded:$EXTRAS.} $RELEASE_LINE
+notify "$HEADLINE — ${ED_KEPT:-?} stories, $IMG_COUNT illustrations, ${WIRE_COUNT:-0} wire, in ${RUN_MIN}m.${EXTRAS:+ Degraded:$EXTRAS.}$GUARD_LINE $RELEASE_LINE
 https://luxintenebris.news/?ed=$NEXT_ISSUE"

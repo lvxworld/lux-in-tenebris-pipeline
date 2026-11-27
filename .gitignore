@@ -33,3 +33,8 @@ output/
 .env
 *.env
 .env.*
+auth.json
+*.pem
+*.key
+.netrc
+*credential*
