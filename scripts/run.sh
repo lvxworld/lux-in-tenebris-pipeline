@@ -1037,9 +1037,39 @@ if [ -n "$RELEASE_RUN" ]; then
         RELEASE_STATUS="${CONC:-unverified}"
         [ "$RELEASE_STATUS" = "failure" ] || break
         if [ "$attempt" = 1 ]; then
-            echo "  ⚠ Pages deploy failed (run $RELEASE_RUN) — retrying once"
-            gh run rerun "$RELEASE_RUN" --repo "$DEPLOY_SLUG" --failed >/dev/null 2>&1 || true
-            sleep 15
+            # Retry by triggering a FRESH run — never `gh run rerun --failed`.
+            # Re-running the job re-uploads the artifact while the previous
+            # attempt's artifact is still attached to the SAME run, so
+            # deploy-pages finds two and dies with:
+            #   Multiple artifacts named "github-pages" were unexpectedly found
+            #   for this workflow run. Artifact count is 2.
+            # That is not a retry, it is a guaranteed second failure — it is
+            # what turned 2026-11-27's transient upload glitch into a day stuck
+            # on the previous issue (and it is exactly what happened on the
+            # first run of this step, which is why this comment exists).
+            # A new run gets a clean artifact namespace.
+            echo "  ⚠ Pages deploy failed (run $RELEASE_RUN) — dispatching a fresh deploy"
+            gh workflow run deploy.yml --repo "$DEPLOY_SLUG" --ref main >/dev/null 2>&1 || \
+                echo "  ⚠ could not dispatch a fresh deploy (gh workflow run failed)"
+            NEW_RUN=""
+            for _ in $(seq 1 12); do
+                NEW_RUN=$(gh run list --repo "$DEPLOY_SLUG" --event workflow_dispatch --limit 10 \
+                    --json databaseId,headSha \
+                    --jq "[.[] | select(.headSha==\"$DEPLOY_SHA\")][0].databaseId" 2>/dev/null || echo "")
+                if [ -n "$NEW_RUN" ] && [ "$NEW_RUN" != "null" ] && [ "$NEW_RUN" != "$RELEASE_RUN" ]; then
+                    break
+                fi
+                NEW_RUN=""
+                sleep 5
+            done
+            if [ -n "$NEW_RUN" ]; then
+                RELEASE_RUN="$NEW_RUN"
+                echo "  ↻ retrying as fresh run $RELEASE_RUN"
+            else
+                echo "  ⚠ fresh deploy never appeared — reporting the failed run"
+                break
+            fi
+            sleep 10
         fi
     done
     if [ "$RELEASE_STATUS" = "success" ]; then
@@ -1083,6 +1113,11 @@ echo "════════════════════════�
 # The release line is the one that matters most: an issue that was written,
 # rendered and pushed but never deployed is not live, and the notification is
 # the only place that distinction becomes visible without reading logs.
+# The URL carries ?ed=<issue> on purpose: Telegram caches link previews per
+# URL, so a bare domain keeps showing the title captured on some earlier day
+# (that is the "message still says yesterday's edition" report). A fresh URL
+# per issue forces a fresh preview — and by now step 11b has already waited for
+# the deploy, so the title the preview reads is today's.
 RUN_MIN=$(( $(elapsed) / 60 ))
 EXTRAS=""
 [ "$SKIP_IMAGES" = true ]  && EXTRAS="$EXTRAS no images,"
@@ -1101,4 +1136,4 @@ case "$RELEASE_STATUS" in
                   HEADLINE="⛔ Lux #$NEXT_ISSUE — NON live";;
 esac
 notify "$HEADLINE — ${ED_KEPT:-?} stories, $IMG_COUNT illustrations, ${WIRE_COUNT:-0} wire, in ${RUN_MIN}m.${EXTRAS:+ Degraded:$EXTRAS.} $RELEASE_LINE
-https://luxintenebris.news"
+https://luxintenebris.news/?ed=$NEXT_ISSUE"

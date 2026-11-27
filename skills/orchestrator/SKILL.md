@@ -44,18 +44,44 @@ and nobody knew until a human spotted it. Nothing in the pipeline watched
 Actions, because nothing in it *could* — the push says nothing about the deploy.
 
 Step 11b closes that loop: it finds the Pages run whose `headSha` matches the
-commit just pushed, polls it (bounded, ~5 min), re-runs it once via
-`gh run rerun --failed` if it failed, and puts the outcome in the milestone
-notification:
+commit just pushed, polls it (bounded, ~5 min), and puts the outcome in the
+milestone notification:
 
 - `✅ Lux #N is live — … Release verificata live (Pages run <id>).`
 - `⚠ Lux #N — pubblicata, release non confermata` (check skipped / no run found)
 - `⛔ Lux #N — NON live … il sito è ANCORA sull'edizione precedente.`
 
+On failure it retries by dispatching a **fresh** `workflow_dispatch` run of
+`deploy.yml --ref main`.
+
+### 🔴 Never retry a failed Pages run with `gh run rerun --failed`
+
+Re-running the job re-uploads the artifact while the previous attempt's artifact
+is still attached to the **same** run, so `deploy-pages` finds two and dies with:
+
+```
+Multiple artifacts named "github-pages" were unexpectedly found for this
+workflow run. Artifact count is 2.
+```
+
+That is not a retry, it is a guaranteed second failure — it turned 2026-11-27's
+transient upload glitch into a whole day stuck on the previous issue. A new run
+gets a clean artifact namespace; `rerun` never does. This was shipped wrong once
+and caught by the step's own first production run, which is the only reason it
+is documented here.
+
+### Link previews: always notify with `?ed=<issue>`
+
+Telegram caches link previews per URL, so a bare `https://luxintenebris.news`
+keeps showing whatever `<title>` was captured on an earlier day — the report
+"the message still shows yesterday's edition" is this, not a deploy failure.
+The notification URL carries `?ed=$NEXT_ISSUE` to force a fresh preview, and
+because step 11b waits for the deploy first, the title it reads is today's.
+
 **Auth:** the ambient `gh` login is used (NTTLuke has admin on the deploy repo,
-which is what `rerun` needs). `GITHUB_TOKEN` from the profile `.env` is only
-exported after it validates — the one stored there is expired, and a bad
-`GH_TOKEN` would 401 every check.
+which is what dispatching and re-running workflow runs needs). `GITHUB_TOKEN`
+from the profile `.env` is only exported after it validates — the one stored
+there is expired, and a bad `GH_TOKEN` would 401 every check.
 
 **Never make this step fatal:** no gh, no login, or an API outage must leave
 `RELEASE_STATUS=unverified` and let the run finish. A missed notification is
