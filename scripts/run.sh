@@ -703,6 +703,28 @@ echo "[step 5] image gen..."
 SKIP_IMAGES=false
 mkdir -p "$IMAGES_DIR"
 
+# xAI marks the xai-oauth credential "exhausted" after a 403 and NEVER clears it
+# by itself (last_error_reset_at is empty). While that flag is set,
+# `image_generate` is not offered to the agent at all: the 2026-11-27 image run
+# reported "no xAI credentials in this session", never called Grok, and silently
+# paid OpenRouter $0.70 for five images — and it would have kept doing that
+# every single day even after the xAI balance came back. Clearing the flag costs
+# nothing (a 403 is free) and is what lets Grok resume on its own, with no
+# manual step, which is exactly the behaviour the config is kept on xAI for.
+XAI_AUTH="$HOME/.hermes/profiles/$PROFILE/auth.json"
+if [ -f "$XAI_AUTH" ] && python3 -c "
+import json, sys
+try:
+    pool = json.load(open(sys.argv[1])).get('credential_pool', {}).get('xai-oauth') or []
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(c.get('last_status') == 'exhausted' for c in pool) else 1)
+" "$XAI_AUTH" 2>/dev/null; then
+    echo "  ⚠ xAI credential marked exhausted — resetting so Grok Imagine is attempted"
+    "$HERMES_BIN" --profile "$PROFILE" auth reset xai-oauth >/dev/null 2>&1 \
+        || echo "  ⚠ auth reset failed (non-fatal, continuing to the fallback)"
+fi
+
 log_attempt "$LOG_DIR/imagegen_${TODAY}.log" "image gen"
 timeout "$MEDIA_TIMEOUT_SECS" "$HERMES_BIN" chat -q "You are the Image Generator for Lux in Tenebris. Load skill image-gen.
 Today is $TODAY. Read $V2_DIR/edition.json.

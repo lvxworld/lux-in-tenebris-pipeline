@@ -61,6 +61,28 @@ curl -s https://openrouter.ai/api/v1/credits -H "Authorization: Bearer $OPENROUT
 (2026-11-21: `limit_remaining` read ~$47 while the real balance was $0.59 and every image call 402'd).
 When the balance is under the floor, that is an operator action — report it and stop, do not retry.
 
+## 🔴 P8: an "exhausted" xAI credential makes the Grok tool DISAPPEAR (silent paid fallback)
+Hermes marks the `xai-oauth` credential `last_status: exhausted` after a 403 and
+**never clears it on its own** (`last_error_reset_at` is empty, no cooldown expiry). While
+that flag is set, `image_generate` is not offered to the agent session **at all**: the
+2026-11-27 image run logged *"Grok unavailable — no xAI credentials in this session, so no
+403; went straight to fallback"*, never attempted Grok, and quietly paid OpenRouter $0.70
+for five images. That would have continued every day, forever, even after the xAI balance
+came back — the opposite of "Grok resumes by itself once credits return".
+
+**Symptom:** the agent says it has no xAI credentials (not "403"). **Confirm:**
+
+```bash
+python3 -c "import json;c=json.load(open('$HOME/.hermes/profiles/luke/auth.json'))['credential_pool']['xai-oauth'][0];print(c.get('last_status'),c.get('last_error_code'))"
+# exhausted 403   → the tool is hidden
+hermes --profile luke auth list | grep -A1 'xai-oauth ('   # shows "auth failed (403)"
+```
+
+**Fix / rule:** `hermes --profile luke auth reset xai-oauth` before generating. `run.sh`
+step 5 now does this automatically whenever the flag is set (costs nothing — a 403 is
+free), so Grok is always attempted first and recovers without a manual step. Never "fix"
+this by pointing `image_gen.provider` somewhere else.
+
 ## 🔴 P6: Grok returns 403 spending-limit → use the nano-banana fallback, never touch config
 When `image_generate` returns `403 personal-team-blocked:spending-limit`, xAI Grok Imagine is out of
 account credits/subscription — that is NOT an auth failure. `hermes --profile luke auth refresh xai-oauth`
